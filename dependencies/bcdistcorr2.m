@@ -15,7 +15,7 @@ function [bcR, p, T, df] = bcdistcorr2(x, y)
 	%   Date: 7.30.2016
 	%   Author: Po-He Tseng (pohetsn@gmail.com)
 	%   Date: 9 July 2019
-	%   Rewrote A* calculation to be faster for large matrices
+	%   Rewrote A* calculation to be faster for large matrices (by Jorrit Montijn)
 	
 	assert(rows(x)==rows(y));
 	n = rows(x);
@@ -66,7 +66,7 @@ function matA = Astar(x)
 		matA = matA + dblM;
 	else
 		%matrix operations require more memory
-		matA = bsxfun(@minus, matD, bsxfun(@mtimes, vecM', ones(1,n)));
+		matA = bsxfun(@minus, matD, bsxfun(@mtimes, vecTranspM, ones(1,n)));
 		matA = bsxfun(@minus, matA, bsxfun(@mtimes, ones(n,1), vecM));
 		matA = bsxfun(@plus, matA, dblM);
 	end
