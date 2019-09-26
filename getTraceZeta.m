@@ -1,10 +1,11 @@
-function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPlot,dblUseMaxDur,intResampNum,boolVerbose)
-	%getZeta Calculates neuronal responsiveness index zeta
-	%syntax: [dblZ,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPlot,dblUseMaxDur,intResampNum,boolVerbose)
+function [dblZeta,sOptionalOutputs] = getTraceZeta(vecTraceT,vecTraceAct,vecEventStarts,intPlot,dblUseMaxDur,intResampNum,boolVerbose)
+	%getTraceZeta Calculates neuronal responsiveness index zeta for traces
+	%syntax: [dblZ,sOptionalOutputs] = getTraceZeta(vecTraceT,vecTraceAct,vecEventStarts,intPlot,dblUseMaxDur,intResampNum,boolVerbose)
 	%	input:
-	%	- vecSpikeTimes [S x 1]: spike times (s)
+	%	- vecTraceT [N x 1]: time (s) corresponding to entries in vecTraceAct
+	%	- vecTraceAct [N x 1]: activation trace (e.g., calcium imaging dF/F0)
 	%	- vecEventStarts [T x 1]: event on times (s), or [T x 2] including event off times
-	%	- intPlot: integer, plotting switch (0=none, 1=traces, 2=raster plot) (default: 0)
+	%	- intPlot: integer, plotting switch (0=none, 1=traces, 2=activity heat map) (default: 0)
 	%	- dblUseMaxDur: float (s), ignore all spikes beyond this duration after stimulus onset
 	%								[default: median of trial start to trial start]
 	%	- intResampNum: integer, number of resamplings (default: 25)
@@ -13,7 +14,7 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 	%	output:
 	%	- dblZeta; FDR-corrected responsiveness z-score (i.e., >2 is significant)
 	%	- sOptionalOutputs; structure with fields:
-	%		- dblZ; uncorrected peak z-score 
+	%		- dblZ; uncorrected peak z-score
 	%		- dblP; p-value corresponding to zeta
 	%		- dblHzD; Cohen's D based on mean-rate stim/base difference
 	%		- dblHzP; p-value based on mean-rate stim/base difference
@@ -35,7 +36,11 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 	
 	%% prep data
 	%ensure orientation
-	vecSpikeTimes = vecSpikeTimes(:);
+	vecTraceT = vecTraceT(:);
+	vecTraceAct = vecTraceAct(:);
+	if size(vecEventStarts,2) > 2
+		vecEventStarts = vecEventStarts';
+	end
 	
 	%calculate stim/base difference?
 	boolActDiff = false;
@@ -61,24 +66,30 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 	
 	%get resampling num
 	if ~exist('intResampNum','var') || isempty(intResampNum)
-		intResampNum = 50;
+		intResampNum = 100;
 	end
 	
-	%% prepare interpolation points
+	%get spike times in trials
+	dblSamplingFreq = median(diff(vecTraceT));
+	
+	%% get trial responses
 	intMaxRep = size(vecEventStarts,1);
-	[vecEventPerSpike,vecTimePerSpike] = getSpikesInTrial(vecSpikeTimes,vecEventStarts(:,1));
-	indUseSpikes = vecEventPerSpike > 0 & vecEventPerSpike <= intMaxRep & vecTimePerSpike>0 & vecTimePerSpike < dblUseMaxDur;
-	vecUseSpikeTimes = vecTimePerSpike(indUseSpikes);
-	vecSpikeT = unique(sort(vecUseSpikeTimes,'ascend'));
-	intSpikes = numel(vecSpikeT);
+	[vecRefT,matTracePerTrial] = getTraceInTrial(vecTraceT,vecTraceAct,vecEventStarts,dblSamplingFreq,dblUseMaxDur);
 	
 	%% run normal
 	%get data
-	[vecRealDiff,vecRealFrac,vecRealFracLinear] = ...
-		getTempOffset(vecSpikeT,vecSpikeTimes,vecEventStarts(:,1),dblUseMaxDur);
-
-	%% run bootstraps2
-	matRandDiff = nan(intSpikes,intResampNum);
+	vecMeanTrace = nanmean(matTracePerTrial,1)';
+	vecRealFrac = cumsum(vecMeanTrace) / sum(vecMeanTrace);
+	
+	%get linear fractions
+	vecRealFracLinear = linspace(median(vecMeanTrace),sum(vecMeanTrace),numel(vecMeanTrace))' / sum(vecMeanTrace);
+	
+	%assign data
+	vecRealDiff = vecRealFrac - vecRealFracLinear;
+	vecRealDiff = vecRealDiff - mean(vecRealDiff);
+	
+	%% run bootstraps
+	matRandDiff = nan(numel(vecMeanTrace),intResampNum);
 	for intResampling=1:intResampNum
 		%% msg
 		if boolVerbose
@@ -87,14 +98,24 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 		%% get random subsample
 		vecStimUseOnTime = vecEventStarts(:,1) + 2*median(diff(vecEventStarts(:,1)))*rand(size(vecEventStarts(:,1)));
 		
-		%get temp offset
-		[vecRandDiff,vecRandFrac,vecRandFracLinear] = ...
-			getTempOffset(vecSpikeT,vecSpikeTimes,vecStimUseOnTime,dblUseMaxDur);
-	
+		%get trial responses
+		[vecRefT,matRandTracePerTrial] = getTraceInTrial(vecTraceT,vecTraceAct,vecStimUseOnTime,dblSamplingFreq,dblUseMaxDur);
+		
+		%get data
+		vecMeanRandTrace = nanmean(matRandTracePerTrial,1)';
+		vecRandFrac = cumsum(vecMeanRandTrace) / sum(vecMeanRandTrace);
+		
+		%get linear fractions
+		vecRandFracLinear = linspace(median(vecMeanRandTrace),sum(vecMeanRandTrace),numel(vecMeanRandTrace))' / sum(vecMeanRandTrace);
+		
 		%assign data
-		matRandDiff(:,intResampling) = vecRandDiff - mean(vecRandDiff);
+		vecRandDiff = vecRandFrac - vecRandFracLinear;
+		vecRandDiff = vecRandDiff - mean(vecRandDiff);
+		
+		%assign data
+		matRandDiff(:,intResampling) = vecRandDiff ;
 	end
-
+	
 	%% calculate measure of effect size (for equal n, d' equals Cohen's d)
 	%define plots
 	vecRandMean = nanmean(matRandDiff,2);
@@ -120,7 +141,7 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 	vecAllVals = vecAllVals(vecReorder);
 	vecAllPeakWidths = vecAllPeakWidths(vecReorder);
 	vecAllPeakProminences = vecAllPeakProminences(vecReorder);
-	vecAllPeakTimes = vecSpikeT(vecAllPeakLocs);
+	vecAllPeakTimes = vecTraceT(vecAllPeakLocs);
 	
 	%find highest peak and retrieve value
 	if isempty(vecAllVals)
@@ -131,40 +152,54 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 		[dummy,intLoc]= max(abs(vecAllVals));
 		intInterpLoc = vecAllPeakLocs(intLoc);
 	end
-	dblMaxZTime = vecSpikeT(intInterpLoc);
+	dblMaxZTime = vecTraceT(intInterpLoc);
 	dblZ = vecZ(intInterpLoc);
 	dblCorrectionFactor = 2/3.5;
 	dblZeta = dblZ*dblCorrectionFactor;
 	dblP=1-(normcdf(abs(dblZeta))-normcdf(-abs(dblZeta)));
 	
+	%build common timeframe
+	vecRefT = (dblSamplingFreq/2):dblSamplingFreq:dblUseMaxDur;
+		
 	if boolActDiff
 		%% calculate mean-rate difference
 		%pre-allocate
-		vecStimHz = zeros(intMaxRep,1);
-		vecBaseHz = zeros(intMaxRep,1);
+		vecStimAct = zeros(intMaxRep,1);
+		vecBaseAct = zeros(intMaxRep,1);
 		dblMedianBaseDur = median(vecEventStarts(2:end,1) - vecEventStarts(1:(end-1),2));
+		intTimeNum = numel(vecTraceT);
 		
 		%go through trials to build spike time vector
 		for intEvent=1:intMaxRep
-			%get times
+			%% get original times
 			dblStartT = vecEventStarts(intEvent,1);
-			dblStopT = dblStartT + dblUseMaxDur;
+			dblStopT = dblStartT+dblUseMaxDur;
 			dblPreT = dblStartT - dblMedianBaseDur;
 			
-			% build trial assignment
-			vecStimHz(intEvent) = sum(vecSpikeTimes < dblStopT & vecSpikeTimes > dblStartT)/(dblStopT - dblStartT);
-			vecBaseHz(intEvent) = sum(vecSpikeTimes < dblStartT & vecSpikeTimes > dblPreT)/dblMedianBaseDur;
+			intStartT = max([1 find(vecTraceT > dblStartT,1) - 1]);
+			intStopT = min([intTimeNum find(vecTraceT > dblStopT,1) + 1]);
+			intPreT = max([1 find(vecTraceT > dblPreT,1) - 1]);
+			vecSelectFramesBase = intPreT:(intStartT-1);
+			vecSelectFramesStim = intStartT:intStopT;
+			
+			%% get data
+			vecUseBaseTrace = vecTraceAct(vecSelectFramesBase);
+			vecUseStimTrace = vecTraceAct(vecSelectFramesStim);
+			
+			%% get activity
+			vecBaseAct(intEvent) = mean(vecUseBaseTrace);
+			vecStimAct(intEvent) = mean(vecUseStimTrace);
 		end
 		
 		%get metrics
-		dblHzD = abs(mean(vecStimHz - vecBaseHz)) / ( (std(vecStimHz) + std(vecBaseHz))/2);
-		[h,dblHzP]=ttest(vecStimHz,vecBaseHz);
+		dblHzD = abs(mean(vecStimAct - vecBaseAct)) / ( (std(vecStimAct) + std(vecBaseAct))/2);
+		[h,dblHzP]=ttest(vecStimAct,vecBaseAct);
 	end
 	
 	%% plot
 	if intPlot
 		%plot maximally 50 traces
-		intPlotIters = min([size(matRandDiff,2) 50]); 
+		intPlotIters = min([size(matRandDiff,2) 50]);
 		
 		%make maximized figure
 		figure
@@ -176,29 +211,32 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 		
 		if intPlot == 2
 			subplot(2,3,1)
-			plotRaster(vecSpikeTimes,vecEventStarts(:,1));
+			imagesc(vecRefT,1:size(matTracePerTrial,2),matTracePerTrial);
+			colormap(hot);
 			xlabel('Time from event (s)');
 			ylabel('Trial #');
-			title('Spike raster plot');
+			title('Z-scored activation');
 			fixfig;
+			grid off;
 		end
 		
 		%plot
 		subplot(2,3,2)
 		sOpt = struct;
 		sOpt.handleFig =-1;
-		[vecMean,vecSEM,vecWindowBinCenters] = doPEP(vecSpikeTimes,0:0.1:dblUseMaxDur,vecEventStarts(:,1),sOpt);
+		sOpt.vecWindow = [0 dblUseMaxDur];
+		[vecMean,vecSEM,vecWindowBinCenters] = doPEP(vecTraceT,vecTraceAct,vecEventStarts(:,1),sOpt);
 		errorbar(vecWindowBinCenters,vecMean,vecSEM);
-		ylim([0 max(get(gca,'ylim'))]);
+		%ylim([0 max(get(gca,'ylim'))]);
 		title(sprintf('Mean spiking over trials'));
 		xlabel('Time from event (s)');
-		ylabel('Mean spiking rate (Hz)');
+		ylabel('Activation (z-score)');
 		fixfig
 		
 		subplot(2,3,3)
-		plot(vecSpikeT,vecRealFrac)
+		plot(vecRefT,vecRealFrac)
 		hold on
-		plot(vecSpikeT,vecRealFracLinear,'color',[0.5 0.5 0.5]);
+		plot(vecRefT,vecRealFracLinear,'color',[0.5 0.5 0.5]);
 		title(sprintf('Real data'));
 		xlabel('Time from event (s)');
 		ylabel('Fractional position of spike in trial');
@@ -206,7 +244,7 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 		
 		subplot(2,3,4)
 		hold on
-		plot(vecSpikeT,vecRealDiff);
+		plot(vecRefT,vecRealDiff);
 		xlabel('Time  from event (s)');
 		ylabel('Offset of data from linear (frac pos)');
 		title(sprintf('Real diff data/baseline'));
@@ -216,9 +254,9 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 		cla;
 		hold all
 		for intOffset=1:intPlotIters
-			plot(vecSpikeT,matRandDiff(:,intOffset),'Color',[0.5 0.5 0.5]);
+			plot(vecRefT,matRandDiff(:,intOffset),'Color',[0.5 0.5 0.5]);
 		end
-		plot(vecSpikeT,vecRealDiff,'Color',lines(1));
+		plot(vecRefT,vecRealDiff,'Color',lines(1));
 		hold off
 		xlabel('Time from event (s)');
 		ylabel('Offset of data from linear (s)');
@@ -226,7 +264,7 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 		fixfig
 		
 		subplot(2,3,6)
-		plot(vecSpikeT,vecZ);
+		plot(vecRefT,vecZ);
 		hold on
 		scatter(vecAllPeakTimes,vecAllVals,'kx');
 		scatter(dblMaxZTime,dblZ,'rx');
@@ -244,7 +282,7 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 		sOptionalOutputs.dblP = dblP;
 		sOptionalOutputs.dblHzD = dblHzD;
 		sOptionalOutputs.dblHzP = dblHzP;
-		sOptionalOutputs.vecInterpT = vecSpikeT;
+		sOptionalOutputs.vecInterpT = vecTraceT;
 		sOptionalOutputs.vecZ = vecZ;
 		sOptionalOutputs.vecPeaksZ = vecAllVals;
 		sOptionalOutputs.vecPeaksIdxT = vecAllPeakLocs;
