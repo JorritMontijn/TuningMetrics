@@ -18,7 +18,7 @@ function [dblZeta,sOptionalOutputs] = getTraceZeta(vecTraceT,vecTraceAct,vecEven
 	%		- dblP; p-value corresponding to zeta
 	%		- dblHzD; Cohen's D based on mean-rate stim/base difference
 	%		- dblHzP; p-value based on mean-rate stim/base difference
-	%		- vecInterpT: timestamps of interpolated z-scores
+	%		- vecSpikeT: timestamps of interpolated z-scores
 	%		- vecZ; z-score for all time points corresponding to vecInterpT
 	%		- vecPeaksZ; z-scores of peaks in vecZ
 	%		- vecPeaksIdxT; index vector for peaks in vecZ
@@ -120,7 +120,7 @@ function [dblZeta,sOptionalOutputs] = getTraceZeta(vecTraceT,vecTraceAct,vecEven
 	%define plots
 	vecRandMean = nanmean(matRandDiff,2);
 	vecRandSd = nanstd(matRandDiff,[],2);
-	vecZ = ((vecRealDiff-vecRandMean)./vecRandSd);
+	vecZ = ((vecRealDiff-mean(vecRandMean))./mean(vecRandSd));
 	
 	%get max & min values
 	[vecPosVals,vecPosPeakLocs,vecPosPeakWidth,vecPosPeakHeight]= findpeaks(vecZ,'MinPeakDistance',numel(vecZ)/10);
@@ -211,7 +211,7 @@ function [dblZeta,sOptionalOutputs] = getTraceZeta(vecTraceT,vecTraceAct,vecEven
 		
 		if intPlot == 2
 			subplot(2,3,1)
-			imagesc(vecRefT,1:size(matTracePerTrial,2),matTracePerTrial);
+			imagesc(vecRefT,1:size(matTracePerTrial,1),matTracePerTrial);
 			colormap(hot);
 			xlabel('Time from event (s)');
 			ylabel('Trial #');
@@ -243,14 +243,6 @@ function [dblZeta,sOptionalOutputs] = getTraceZeta(vecTraceT,vecTraceAct,vecEven
 		fixfig
 		
 		subplot(2,3,4)
-		hold on
-		plot(vecRefT,vecRealDiff);
-		xlabel('Time  from event (s)');
-		ylabel('Offset of data from linear (frac pos)');
-		title(sprintf('Real diff data/baseline'));
-		fixfig
-		
-		subplot(2,3,5)
 		cla;
 		hold all
 		for intOffset=1:intPlotIters
@@ -263,7 +255,7 @@ function [dblZeta,sOptionalOutputs] = getTraceZeta(vecTraceT,vecTraceAct,vecEven
 		title(sprintf('1-%d, diff data/baseline',intPlotIters));
 		fixfig
 		
-		subplot(2,3,6)
+		subplot(2,3,5)
 		plot(vecRefT,vecZ);
 		hold on
 		scatter(vecAllPeakTimes,vecAllVals,'kx');
@@ -282,7 +274,7 @@ function [dblZeta,sOptionalOutputs] = getTraceZeta(vecTraceT,vecTraceAct,vecEven
 		sOptionalOutputs.dblP = dblP;
 		sOptionalOutputs.dblHzD = dblHzD;
 		sOptionalOutputs.dblHzP = dblHzP;
-		sOptionalOutputs.vecInterpT = vecTraceT;
+		sOptionalOutputs.vecRefT = vecRefT;
 		sOptionalOutputs.vecZ = vecZ;
 		sOptionalOutputs.vecPeaksZ = vecAllVals;
 		sOptionalOutputs.vecPeaksIdxT = vecAllPeakLocs;

@@ -35,7 +35,7 @@ function [vecThisDiff,vecThisFrac,vecThisFracLinear] = ...
 	vecThisFracLinear = (vecSpikeT./dblUseMaxDur);
 	
 	%calc difference
-	vecThisDiff = vecThisFracLinear - vecThisFrac;
+	vecThisDiff = vecThisFrac - vecThisFracLinear;
 	vecThisDiff = vecThisDiff - mean(vecThisDiff);
 end
 

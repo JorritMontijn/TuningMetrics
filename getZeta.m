@@ -17,7 +17,7 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 	%		- dblP; p-value corresponding to zeta
 	%		- dblHzD; Cohen's D based on mean-rate stim/base difference
 	%		- dblHzP; p-value based on mean-rate stim/base difference
-	%		- vecInterpT: timestamps of interpolated z-scores
+	%		- vecSpikeT: timestamps of spike times (corresponding to vecZ)
 	%		- vecZ; z-score for all time points corresponding to vecInterpT
 	%		- vecPeaksZ; z-scores of peaks in vecZ
 	%		- vecPeaksIdxT; index vector for peaks in vecZ
@@ -65,11 +65,22 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 	end
 	
 	%% prepare interpolation points
+	%pre-allocate
 	intMaxRep = size(vecEventStarts,1);
-	[vecEventPerSpike,vecTimePerSpike] = getSpikesInTrial(vecSpikeTimes,vecEventStarts(:,1));
-	indUseSpikes = vecEventPerSpike > 0 & vecEventPerSpike <= intMaxRep & vecTimePerSpike>0 & vecTimePerSpike < dblUseMaxDur;
-	vecUseSpikeTimes = vecTimePerSpike(indUseSpikes);
-	vecSpikeT = unique(sort(vecUseSpikeTimes,'ascend'));
+	cellSpikeTimesPerTrial = cell(intMaxRep,1);
+	
+	%go through trials to build spike time vector
+	for intEvent=1:intMaxRep
+		%get times
+		dblStartT = vecEventStarts(intEvent,1);
+		dblStopT = dblStartT + dblUseMaxDur;
+		
+		% build trial assignment
+		cellSpikeTimesPerTrial{intEvent} = vecSpikeTimes(vecSpikeTimes < dblStopT & vecSpikeTimes > dblStartT) - dblStartT;
+	end
+	
+	%get spikes in fold
+	vecSpikeT = sort(cell2vec(cellSpikeTimesPerTrial),'ascend');
 	intSpikes = numel(vecSpikeT);
 	
 	%% run normal
@@ -85,7 +96,7 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 			fprintf('Now at resampling %d/%d\n',intResampling,intResampNum);
 		end
 		%% get random subsample
-		vecStimUseOnTime = vecEventStarts(:,1) + 2*median(diff(vecEventStarts(:,1)))*rand(size(vecEventStarts(:,1)));
+		vecStimUseOnTime = vecEventStarts(:,1) + 2*dblUseMaxDur*(rand(size(vecEventStarts(:,1)))-0.5);
 		
 		%get temp offset
 		[vecRandDiff,vecRandFrac,vecRandFracLinear] = ...
@@ -99,7 +110,7 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 	%define plots
 	vecRandMean = nanmean(matRandDiff,2);
 	vecRandSd = nanstd(matRandDiff,[],2);
-	vecZ = ((vecRealDiff-vecRandMean)./vecRandSd);
+	vecZ = ((vecRealDiff-mean(vecRandMean))./mean(vecRandSd));
 	
 	%get max & min values
 	[vecPosVals,vecPosPeakLocs,vecPosPeakWidth,vecPosPeakHeight]= findpeaks(vecZ,'MinPeakDistance',numel(vecZ)/10);
@@ -123,16 +134,9 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 	vecAllPeakTimes = vecSpikeT(vecAllPeakLocs);
 	
 	%find highest peak and retrieve value
-	if isempty(vecAllVals)
-		[dummy,intLoc]= max(abs(cat(1,vecPosVals,vecNegVals)));
-		veTempPeakLocs = cat(1,vecPosPeakLocs,vecNegPeakLocs);
-		intInterpLoc = veTempPeakLocs(intLoc);
-	else
-		[dummy,intLoc]= max(abs(vecAllVals));
-		intInterpLoc = vecAllPeakLocs(intLoc);
-	end
-	dblMaxZTime = vecSpikeT(intInterpLoc);
-	dblZ = vecZ(intInterpLoc);
+	[dummy,intPeakLoc]= max(abs(vecZ));
+	dblMaxZTime = vecSpikeT(intPeakLoc);
+	dblZ = vecZ(intPeakLoc);
 	dblCorrectionFactor = 2/3.5;
 	dblZeta = dblZ*dblCorrectionFactor;
 	dblP=1-(normcdf(abs(dblZeta))-normcdf(-abs(dblZeta)));
@@ -187,7 +191,7 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 		subplot(2,3,2)
 		sOpt = struct;
 		sOpt.handleFig =-1;
-		[vecMean,vecSEM,vecWindowBinCenters] = doPEP(vecSpikeTimes,0:0.1:dblUseMaxDur,vecEventStarts(:,1),sOpt);
+		[vecMean,vecSEM,vecWindowBinCenters] = doPEP(vecSpikeTimes,0:0.005:dblUseMaxDur,vecEventStarts(:,1),sOpt);
 		errorbar(vecWindowBinCenters,vecMean,vecSEM);
 		ylim([0 max(get(gca,'ylim'))]);
 		title(sprintf('Mean spiking over trials'));
@@ -203,7 +207,7 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 		xlabel('Time from event (s)');
 		ylabel('Fractional position of spike in trial');
 		fixfig
-		
+		%{
 		subplot(2,3,4)
 		hold on
 		plot(vecSpikeT,vecRealDiff);
@@ -211,8 +215,8 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 		ylabel('Offset of data from linear (frac pos)');
 		title(sprintf('Real diff data/baseline'));
 		fixfig
-		
-		subplot(2,3,5)
+		%}
+		subplot(2,3,4)
 		cla;
 		hold all
 		for intOffset=1:intPlotIters
@@ -225,7 +229,7 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 		title(sprintf('1-%d, diff data/baseline',intPlotIters));
 		fixfig
 		
-		subplot(2,3,6)
+		subplot(2,3,5)
 		plot(vecSpikeT,vecZ);
 		hold on
 		scatter(vecAllPeakTimes,vecAllVals,'kx');
@@ -233,8 +237,13 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 		hold off
 		xlabel('Time from event (s)');
 		ylabel('Z-score');
-		title(sprintf('Zeta=%.3f (p=%.3f), d(Hz)=%.3f (p=%.3f)',dblZeta,dblP,dblHzD,dblHzP));
+		if boolActDiff
+			title(sprintf('Zeta=%.3f (p=%.3f), d(Hz)=%.3f (p=%.3f)',dblZeta,dblP,dblHzD,dblHzP));
+		else
+			title(sprintf('Zeta=%.3f (p=%.3f)',dblZeta,dblP));
+		end
 		fixfig
+		
 	end
 	
 	%% build optional output structure
@@ -242,9 +251,11 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 		sOptionalOutputs = struct;
 		sOptionalOutputs.dblZ = dblZ;
 		sOptionalOutputs.dblP = dblP;
-		sOptionalOutputs.dblHzD = dblHzD;
-		sOptionalOutputs.dblHzP = dblHzP;
-		sOptionalOutputs.vecInterpT = vecSpikeT;
+		if boolActDiff
+			sOptionalOutputs.dblHzD = dblHzD;
+			sOptionalOutputs.dblHzP = dblHzP;
+		end
+		sOptionalOutputs.vecSpikeT = vecSpikeT;
 		sOptionalOutputs.vecZ = vecZ;
 		sOptionalOutputs.vecPeaksZ = vecAllVals;
 		sOptionalOutputs.vecPeaksIdxT = vecAllPeakLocs;
