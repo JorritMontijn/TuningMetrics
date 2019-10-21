@@ -1,13 +1,13 @@
 function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPlot,dblUseMaxDur,intResampNum,boolVerbose)
 	%getZeta Calculates neuronal responsiveness index zeta
-	%syntax: [dblZ,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPlot,dblUseMaxDur,intResampNum,boolVerbose)
+	%syntax: [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPlot,dblUseMaxDur,intResampNum,boolVerbose)
 	%	input:
 	%	- vecSpikeTimes [S x 1]: spike times (s)
 	%	- vecEventStarts [T x 1]: event on times (s), or [T x 2] including event off times
 	%	- intPlot: integer, plotting switch (0=none, 1=traces, 2=raster plot) (default: 0)
 	%	- dblUseMaxDur: float (s), ignore all spikes beyond this duration after stimulus onset
 	%								[default: median of trial start to trial start]
-	%	- intResampNum: integer, number of resamplings (default: 25)
+	%	- intResampNum: integer, number of resamplings (default: 50)
 	%	- boolVerbose: boolean, switch to print messages
 	%
 	%	output:
@@ -18,7 +18,7 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 	%		- dblHzD; Cohen's D based on mean-rate stim/base difference
 	%		- dblHzP; p-value based on mean-rate stim/base difference
 	%		- vecSpikeT: timestamps of spike times (corresponding to vecZ)
-	%		- vecZ; z-score for all time points corresponding to vecInterpT
+	%		- vecZ; z-score for all time points corresponding to vecSpikeT
 	%		- vecPeaksZ; z-scores of peaks in vecZ
 	%		- vecPeaksIdxT; index vector for peaks in vecZ
 	%		- vecPeaksTime; time in trial for peaks in vecZ
