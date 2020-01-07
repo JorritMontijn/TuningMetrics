@@ -1,4 +1,4 @@
-function [vecRho,vecP] = getTuningRho(vecResp,vecAngles)
+function [vecRho,vecP] = getTuningRho(vecResp,vecAngles,boolPlot)
 	%getTuningRho Calculates the tuning curve smoothness metric rho
 	%	[vecRho,vecP] = getTuningRho(vecResp,vecAngles)
 	%
@@ -14,6 +14,9 @@ function [vecRho,vecP] = getTuningRho(vecResp,vecAngles)
 	
 	
 	%% check inputs
+	if ~exist('boolPlot','var') || isempty(boolPlot),boolPlot=false;end
+	if size(vecResp,2) == 1,vecResp = vecResp';end
+	if size(vecAngles,2) == 1,vecAngles = vecAngles';end
 	if size(vecResp,2) ~= size(vecAngles,2)
 		error([mfilename ':WrongInput'],'Response vector and angle vector are not the same length!');
 	end
@@ -51,7 +54,6 @@ function [vecRho,vecP] = getTuningRho(vecResp,vecAngles)
 	end
 	
 %% calc rho
-boolPlot = true;
 vecRho = nan(intNumN,1);
 vecP = nan(intNumN,1);
 

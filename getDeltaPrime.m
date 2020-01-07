@@ -15,6 +15,8 @@ function dblDeltaPrime = getDeltaPrime(vecResp,vecAngles,boolBiasCorrection)
 	%2019-08-20 Updated version [by JM]
 	
 	%% check inputs
+	if size(vecResp,2) == 1,vecResp = vecResp';end
+	if size(vecAngles,2) == 1,vecAngles = vecAngles';end
 	if size(vecResp,2) ~= size(vecAngles,2)
 		error([mfilename ':WrongInput'],'Response vector and angle vector are not the same length!');
 	end

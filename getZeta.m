@@ -40,6 +40,9 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 	%calculate stim/base difference?
 	boolActDiff = false;
 	dblHzD = nan;
+	if size(vecEventStarts,2) > 2
+		vecEventStarts = vecEventStarts';
+	end
 	if size(vecEventStarts,2) == 2
 		boolActDiff = true;
 	end
@@ -89,11 +92,13 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 		getTempOffset(vecSpikeT,vecSpikeTimes,vecEventStarts(:,1),dblUseMaxDur);
 
 	%% run bootstraps2
+	hTic = tic;
 	matRandDiff = nan(intSpikes,intResampNum);
 	for intResampling=1:intResampNum
 		%% msg
-		if boolVerbose
+		if boolVerbose && toc(hTic) > 5
 			fprintf('Now at resampling %d/%d\n',intResampling,intResampNum);
+			hTic = tic;
 		end
 		%% get random subsample
 		vecStimUseOnTime = vecEventStarts(:,1) + 2*dblUseMaxDur*(rand(size(vecEventStarts(:,1)))-0.5);
@@ -111,6 +116,12 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 	vecRandMean = nanmean(matRandDiff,2);
 	vecRandSd = nanstd(matRandDiff,[],2);
 	vecZ = ((vecRealDiff-mean(vecRandMean))./mean(vecRandSd));
+	if numel(vecZ) < 3
+		dblZeta = 0;
+		sOptionalOutputs = struct;
+		warning([mfilename ':InsufficientSamples'],'Insufficient samples to calculate zeta');
+		return
+	end
 	
 	%get max & min values
 	[vecPosVals,vecPosPeakLocs,vecPosPeakWidth,vecPosPeakHeight]= findpeaks(vecZ,'MinPeakDistance',numel(vecZ)/10);
@@ -180,7 +191,7 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 		
 		if intPlot == 2
 			subplot(2,3,1)
-			plotRaster(vecSpikeTimes,vecEventStarts(:,1));
+			plotRaster(vecSpikeTimes,vecEventStarts(:,1),dblUseMaxDur);
 			xlabel('Time from event (s)');
 			ylabel('Trial #');
 			title('Spike raster plot');
@@ -191,7 +202,7 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 		subplot(2,3,2)
 		sOpt = struct;
 		sOpt.handleFig =-1;
-		[vecMean,vecSEM,vecWindowBinCenters] = doPEP(vecSpikeTimes,0:0.005:dblUseMaxDur,vecEventStarts(:,1),sOpt);
+		[vecMean,vecSEM,vecWindowBinCenters] = doPEP(vecSpikeTimes,0:0.1:dblUseMaxDur,vecEventStarts(:,1),sOpt);
 		errorbar(vecWindowBinCenters,vecMean,vecSEM);
 		ylim([0 max(get(gca,'ylim'))]);
 		title(sprintf('Mean spiking over trials'));

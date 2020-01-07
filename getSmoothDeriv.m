@@ -73,7 +73,6 @@ function [vecSmoothDeriv,sOptionalOutputs] = getSmoothDeriv(vecSpikeT,intPeaks,i
 	vecPeakTimes = vecBinT(vecPeakLocs);
 	%sort by prominence
 	[vecPeakProminences,vecReorder] = sort(abs(vecPeakProminences),'descend');
-	vecPeakProminences = vecPeakProminences(vecReorder);
 	vecPeakTimes = vecPeakTimes(vecReorder);
 	vecPeakWidths = vecPeakWidths(vecReorder);
 	vecPeakValues = vecPeakValues(vecReorder);
