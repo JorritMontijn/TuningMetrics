@@ -1,13 +1,13 @@
-function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPlot,dblUseMaxDur,intResampNum,boolVerbose)
+function [dblZeta,sZETA,sMSD] = getZeta(vecSpikeTimes,vecEventStarts,dblUseMaxDur,intResampNum,intPlot,boolVerbose)
 	%getZeta Calculates neuronal responsiveness index zeta
-	%syntax: [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPlot,dblUseMaxDur,intResampNum,boolVerbose)
+	%syntax: [dblZeta,sZETA,sMSD] = getZeta(vecSpikeTimes,vecEventStarts,dblUseMaxDur,intResampNum,intPlot,boolVerbose)
 	%	input:
 	%	- vecSpikeTimes [S x 1]: spike times (s)
 	%	- vecEventStarts [T x 1]: event on times (s), or [T x 2] including event off times
-	%	- intPlot: integer, plotting switch (0=none, 1=traces, 2=raster plot) (default: 0)
 	%	- dblUseMaxDur: float (s), ignore all spikes beyond this duration after stimulus onset
 	%								[default: median of trial start to trial start]
 	%	- intResampNum: integer, number of resamplings (default: 50)
+	%	- intPlot: integer, plotting switch (0=none, 1=traces, 2=raster plot) (default: 0)
 	%	- boolVerbose: boolean, switch to print messages
 	%
 	%	output:
@@ -19,9 +19,9 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 	%		- dblHzP; p-value based on mean-rate stim/base difference
 	%		- vecSpikeT: timestamps of spike times (corresponding to vecZ)
 	%		- vecZ; z-score for all time points corresponding to vecSpikeT
-	%		- vecPeaksZ; z-scores of peaks in vecZ
+	%		- vecPeaksValues; z-scores of peaks in vecZ
 	%		- vecPeaksIdxT; index vector for peaks in vecZ
-	%		- vecPeaksTime; time in trial for peaks in vecZ
+	%		- vecPeaksTimes; time in trial for peaks in vecZ
 	%		- vecPeaksWidths; width in spikes for peaks in vecZ
 	%		- vecPeaksProminences; height in z-score of peaks in vecZ
 	%		- vecRealDiff: real offset of spikes relative to uniform rate
@@ -47,16 +47,6 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 		boolActDiff = true;
 	end
 	
-	%get boolPlot
-	if ~exist('intPlot','var') || isempty(intPlot)
-		intPlot = 0;
-	end
-	
-	%get boolVerbose
-	if ~exist('boolVerbose','var') || isempty(boolVerbose)
-		boolVerbose = true;
-	end
-	
 	%trial dur
 	if ~exist('dblUseMaxDur','var') || isempty(dblUseMaxDur)
 		dblUseMaxDur = median(diff(vecEventStarts(:,1)));
@@ -65,6 +55,16 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 	%get resampling num
 	if ~exist('intResampNum','var') || isempty(intResampNum)
 		intResampNum = 50;
+	end
+	
+	%get boolPlot
+	if ~exist('intPlot','var') || isempty(intPlot)
+		intPlot = 0;
+	end
+	
+	%get boolVerbose
+	if ~exist('boolVerbose','var') || isempty(boolVerbose)
+		boolVerbose = true;
 	end
 	
 	%% prepare interpolation points
@@ -118,7 +118,7 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 	vecZ = ((vecRealDiff-mean(vecRandMean))./mean(vecRandSd));
 	if numel(vecZ) < 3
 		dblZeta = 0;
-		sOptionalOutputs = struct;
+		sZETA = struct;
 		warning([mfilename ':InsufficientSamples'],'Insufficient samples to calculate zeta');
 		return
 	end
@@ -234,20 +234,11 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 			plot(vecSpikeT,matRandDiff(:,intOffset),'Color',[0.5 0.5 0.5]);
 		end
 		plot(vecSpikeT,vecRealDiff,'Color',lines(1));
+		scatter(vecAllPeakTimes,vecRealDiff(vecAllPeakLocs),'kx');
+		scatter(dblMaxZTime,vecRealDiff(intPeakLoc),'rx');
 		hold off
 		xlabel('Time from event (s)');
 		ylabel('Offset of data from linear (s)');
-		title(sprintf('1-%d, diff data/baseline',intPlotIters));
-		fixfig
-		
-		subplot(2,3,5)
-		plot(vecSpikeT,vecZ);
-		hold on
-		scatter(vecAllPeakTimes,vecAllVals,'kx');
-		scatter(dblMaxZTime,dblZ,'rx');
-		hold off
-		xlabel('Time from event (s)');
-		ylabel('Z-score');
 		if boolActDiff
 			title(sprintf('Zeta=%.3f (p=%.3f), d(Hz)=%.3f (p=%.3f)',dblZeta,dblP,dblHzD,dblHzP));
 		else
@@ -256,25 +247,31 @@ function [dblZeta,sOptionalOutputs] = getZeta(vecSpikeTimes,vecEventStarts,intPl
 		fixfig
 		
 	end
+	if dblP < 0.05 || dblHzP < 0.05
+		%calculate MSD if significant
+		[vecMSD,sMSD] = getMultiScaleDeriv(vecSpikeTimes,vecEventStarts,dblUseMaxDur,[],[],[],intPlot,boolVerbose);
+	else
+		sMSD = [];
+	end
 	
 	%% build optional output structure
 	if nargin > 1
-		sOptionalOutputs = struct;
-		sOptionalOutputs.dblZ = dblZ;
-		sOptionalOutputs.dblP = dblP;
+		sZETA = struct;
+		sZETA.dblZ = dblZ;
+		sZETA.dblP = dblP;
 		if boolActDiff
-			sOptionalOutputs.dblHzD = dblHzD;
-			sOptionalOutputs.dblHzP = dblHzP;
+			sZETA.dblHzD = dblHzD;
+			sZETA.dblHzP = dblHzP;
 		end
-		sOptionalOutputs.vecSpikeT = vecSpikeT;
-		sOptionalOutputs.vecZ = vecZ;
-		sOptionalOutputs.vecPeaksZ = vecAllVals;
-		sOptionalOutputs.vecPeaksIdxT = vecAllPeakLocs;
-		sOptionalOutputs.vecPeaksTime = vecAllPeakTimes;
-		sOptionalOutputs.vecPeaksWidths = vecAllPeakWidths;
-		sOptionalOutputs.vecPeaksProminences = vecAllPeakProminences;
-		sOptionalOutputs.vecRealDiff = vecRealDiff;
-		sOptionalOutputs.matRandDiff = matRandDiff;
+		sZETA.vecSpikeT = vecSpikeT;
+		sZETA.vecZ = vecZ;
+		sZETA.vecPeaksValues = vecAllVals;
+		sZETA.vecPeaksIdxT = vecAllPeakLocs;
+		sZETA.vecPeaksTimes = vecAllPeakTimes;
+		sZETA.vecPeaksWidths = vecAllPeakWidths;
+		sZETA.vecPeaksProminences = vecAllPeakProminences;
+		sZETA.vecRealDiff = vecRealDiff;
+		sZETA.matRandDiff = matRandDiff;
 	end
 end
 

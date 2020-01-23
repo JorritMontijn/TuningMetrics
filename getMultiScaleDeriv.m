@@ -1,29 +1,37 @@
-function [vecMSprime,sOptionalOutputs] = getMultiScaleDeriv(vecSpikeTimes,vecEventStarts,dblUseMaxDur,intSmoothSd,dblMinScale,dblBase)
-	%getSmoothDeriv Returns binned&smoothed locally dynamic derivative (LDD). Syntax:
-	%   vecSmoothDeriv = getSmoothDeriv(vecSpikeT,intPeaks,dblSmoothSd,dblBinSize,dblPeakScale)
+function [vecMSD,sMSD] = getMultiScaleDeriv(vecSpikeTimes,vecEventStarts,dblUseMaxDur,intSmoothSd,dblMinScale,dblBase,intPlot,boolVerbose)
+	%getMultiScaleDeriv Returns multi-scale derivative. Syntax:
+	%   [vecMSD,sMSD] = getMultiScaleDeriv(vecSpikeTimes,vecEventStarts,dblUseMaxDur,intSmoothSd,dblMinScale,dblBase,intPlot,boolVerbose)
 	%Required input:
-	%	- vecSpikeT is a vector with spike times relative to event times
+	%	- vecSpikeTimes [S x 1]: spike times (s)
+	%	- vecEventStarts [T x 1]: event on times (s), or [T x 2] including event off times
+	%	- dblUseMaxDur: float (s), ignore all spikes beyond this duration after stimulus onset
+	%								[default: median of trial start to trial start]
+	%	- intResampNum: integer, number of resamplings (default: 50)
 	%
 	%Optional inputs:
-	%	- intPeaks: number of peaks to return [default: 3]
 	%	- intSmoothSd: Gaussian SD of smoothing kernel (in # of bins) [default: 3]
-	%	- dblBinSize: bin size in seconds [default: 1/1000]
-	%	- dblPeakScale: critical value for locally dynamic derivative [default: 4]
+	%	- dblMinScale: minimum derivative scale in seconds [default: 1/1000]
+	%	- dblBase: critical value for locally dynamic derivative [default: 4]
+	%	- intPlot: integer, plotting switch (0=none, 1=plot)
+	%	- boolVerbose: boolean, switch to print messages
 	%
 	%Outputs:
-	%	- vecSmoothDeriv; Binned & smoothed LDD
-	%	- sOptionalOutputs; structure with fields:
-	%		- vecBinT; time vector for values in vecSmoothDeriv
-	%		- vecPeakTimes; time in seconds for peaks
-	%		- vecPeakValues; values at peaks
-	%		- vecPeakWidths; widths of peaks
-	%		- vecPeakProminences; prominences of peaks
-	%		- vecDerivT; time vector for unsmoothed & unbinned LDD
-	%		- vecLDD; unsmoothed & unbinned LDD
+	%	- vecMSprime; Multi-scale derivative
+	%	- sMSD; structure with fields:
+	%		- vecMSprime;
+	%		- vecSpikeT;
+	%		- vecFracs;
+	%		- vecLinear; 
+	%		- vecDiff; 
+	%		- vecScale; 
+	%		- matSmoothMSprime; 
+	%		- matMSprime;
 	%
 	%Version history:
 	%1.0 - October 3 2019
 	%	Created by Jorrit Montijn
+	%1.1 - January 23 2019
+	%	Syntax update [by JM]
 	
 	%% set default values
 	if ~exist('intSmoothSd','var') || isempty(intSmoothSd)
@@ -37,6 +45,12 @@ function [vecMSprime,sOptionalOutputs] = getMultiScaleDeriv(vecSpikeTimes,vecEve
 	end
 	if ~exist('dblUseMaxDur','var') || isempty(dblUseMaxDur)
 		dblUseMaxDur = median(diff(vecEventStarts(:,1)));
+	end
+	if ~exist('intPlot','var') || isempty(intPlot)
+		intPlot = 0;
+	end
+	if ~exist('boolVerbose','var') || isempty(boolVerbose)
+		boolVerbose = true;
 	end
 	
 	%% prepare normalized spike times
@@ -113,49 +127,11 @@ function [vecMSprime,sOptionalOutputs] = getMultiScaleDeriv(vecSpikeTimes,vecEve
 	vecFilt = vecFilt./sum(vecFilt);
 	matSmoothDeriv = conv2(matDeriv,vecFilt,'same');
 	%mean
-	vecMSprime = mean(matSmoothDeriv,2);
+	vecMSD = mean(matSmoothDeriv,2);
 	
-	if 0
-		%% plot
-		%make maximized figure
-		figure
-		drawnow;
-		jFig = get(handle(gcf), 'JavaFrame');
-		jFig.setMaximized(true);
-		figure(gcf);
-		drawnow;
+	if intPlot > 0
 		
-		subplot(2,3,1)
-		sOpt = struct;
-		sOpt.handleFig =-1;
-		[vecPEPMean,vecPEPSEM,vecWindowBinCenters] = doPEP(vecSpikeTimes,0:0.005:dblUseMaxDur,vecEventStarts(:,1),sOpt);
-		errorbar(vecWindowBinCenters,vecPEPMean,vecPEPSEM);
-		ylim([0 max(get(gca,'ylim'))]);
-		title(sprintf('Mean spiking over trials'));
-		xlabel('Time from event (s)');
-		ylabel('Mean spiking rate (Hz)');
-		fixfig
-		
-		subplot(2,3,2);
-		plot(vecSpikeT,vecDiff)
-		xlabel('Time from event (s)');
-		ylabel('Offset of data from linear (s)');
-		title(sprintf('Cum. dens. diff real/linear'));
-		fixfig
-	
-		subplot(2,3,3);
-		imagesc(matDeriv');
-		vecTicksY = get(gca,'ytick');
-		cellTicksY = cellfun(@sprintf,cellfill('%.1e',size(vecTicksY)),vec2cell(vecScale(vecTicksY)),'UniformOutput',false)
-		set(gca,'yticklabel',cellTicksY);
-		ytickangle(gca,75)
-		ylabel(sprintf('Scale (s) (%.1es - %.1es)',vecScale(1),vecScale(end)));
-		xlabel('Spike number');
-		title('Multi-scale derivatives');
-		fixfig
-		grid off
-		
-		subplot(2,3,4);
+		subplot(2,3,5);
 		imagesc(matSmoothDeriv');
 		vecTicksY = get(gca,'ytick');
 		cellTicksY = cellfun(@sprintf,cellfill('%.1e',size(vecTicksY)),vec2cell(vecScale(vecTicksY)),'UniformOutput',false);
@@ -163,20 +139,12 @@ function [vecMSprime,sOptionalOutputs] = getMultiScaleDeriv(vecSpikeTimes,vecEve
 		ytickangle(gca,75)
 		ylabel(sprintf('Scale (s) (%.1es - %.1es)',vecScale(1),vecScale(end)));
 		xlabel('Spike number');
-		title('Smoothed MS''');
+		title('Smoothed multi-scale derivatives');
 		fixfig
 		grid off
 		
-		subplot(2,3,5);
-		plot(vecMSprime)
-		xlabel('Spike number');
-		ylabel('Multi-scale derivative');
-		title(sprintf('MS'' by spike'));
-		fixfig
-	
-		
 		subplot(2,3,6);
-		plot(vecSpikeT,vecMSprime)
+		plot(vecSpikeT,vecMSD)
 		xlabel('Time from event (s)');
 		ylabel('Multi-scale derivative');
 		title(sprintf('MS'' by time'));
@@ -186,16 +154,16 @@ function [vecMSprime,sOptionalOutputs] = getMultiScaleDeriv(vecSpikeTimes,vecEve
 		
 	%% build output
 	if nargout > 1
-		sOptionalOutputs = struct;
-		sOptionalOutputs.vecSpikeT = vecSpikeT;
-		sOptionalOutputs.vecFracs = vecFracs;
-		sOptionalOutputs.vecLinear = vecLinear;
-		sOptionalOutputs.vecDiff = vecDiff;
+		sMSD = struct;
+		sMSD.vecMSprime = vecMSD;
+		sMSD.vecSpikeT = vecSpikeT;
+		sMSD.vecFracs = vecFracs;
+		sMSD.vecLinear = vecLinear;
+		sMSD.vecDiff = vecDiff;
 		
-		sOptionalOutputs.vecMSprime = vecMSprime;
-		sOptionalOutputs.vecScale = vecScale;
-		sOptionalOutputs.matSmoothMSprime = matSmoothDeriv;
-		sOptionalOutputs.matMSprime = matDeriv;
+		sMSD.vecScale = vecScale;
+		sMSD.matSmoothMSprime = matSmoothDeriv;
+		sMSD.matMSprime = matDeriv;
 		
 	end
 end
