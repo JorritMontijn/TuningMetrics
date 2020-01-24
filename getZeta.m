@@ -249,7 +249,7 @@ function [dblZeta,sZETA,sMSD] = getZeta(vecSpikeTimes,vecEventStarts,dblUseMaxDu
 	end
 	if dblP < 0.05 || dblHzP < 0.05
 		%calculate MSD if significant
-		[vecMSD,sMSD] = getMultiScaleDeriv(vecSpikeTimes,vecEventStarts,dblUseMaxDur,[],[],[],intPlot,boolVerbose);
+		[vecMSD,sMSD] = getMultiScaleDeriv(vecSpikeT,vecRealDiff,[],[],[],intPlot);
 	else
 		sMSD = [];
 	end
