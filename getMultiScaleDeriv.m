@@ -12,12 +12,12 @@ function [vecMSD,sMSD] = getMultiScaleDeriv(vecT,vecV,intSmoothSd,dblMinScale,db
 	%	- intPlot: integer, plotting switch (0=none, 1=plot)
 	%
 	%Outputs:
-	%	- vecMSprime; Multi-scale derivative
+	%	- vecMSD; Multi-scale derivative
 	%	- sMSD; structure with fields:
-	%		- vecMSD;
-	%		- vecScale; 
-	%		- matSmoothMSD; 
-	%		- matMSD;
+	%		- vecMSD; Multi-scale derivative
+	%		- vecScale; timescales used to calculate derivatives
+	%		- matSmoothMSD; smoothed multi-scale derivatives matrix
+	%		- matMSD; raw multi-scale derivatives matrix
 	%
 	%Version history:
 	%1.0 - January 24 2019
@@ -103,15 +103,15 @@ function [vecMSD,sMSD] = getMultiScaleDeriv(vecT,vecV,intSmoothSd,dblMinScale,db
 		ytickangle(gca,75)
 		ylabel(sprintf('Scale (s) (%.1es - %.1es)',vecScale(1),vecScale(end)));
 		xlabel('Timestamp index (#)');
-		title('Smoothed multi-scale derivatives');
+		title('Smoothed MSDs');
 		fixfig
 		grid off
 		
 		subplot(2,3,6);
 		plot(vecT,vecMSD)
 		xlabel('Time (s)');
-		ylabel('Multi-scale derivative');
-		title(sprintf('MSD by time'));
+		ylabel('Time-locked activation');
+		title(sprintf('Peri Event Plot (PEP)'));
 		fixfig
 	end
 	

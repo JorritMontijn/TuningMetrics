@@ -1,52 +1,76 @@
-function [dblZeta,sOptionalOutputs] = getTraceZeta(vecTraceT,vecTraceAct,vecEventStarts,intPlot,dblUseMaxDur,intResampNum,boolVerbose)
+function [dblZETA,vecLatencies,sZETA,sMSD] = getTraceZeta(vecTraceT,vecTraceAct,varEventTimes,dblUseMaxDur,intResampNum,intPlot,intLatencyPeaks,boolVerbose)
 	%getTraceZeta Calculates neuronal responsiveness index zeta for traces
-	%syntax: [dblZ,sOptionalOutputs] = getTraceZeta(vecTraceT,vecTraceAct,vecEventStarts,intPlot,dblUseMaxDur,intResampNum,boolVerbose)
+	%syntax: [dblZETA,vecLatencies,sZETA,sMSD] = getTraceZeta(vecTraceT,vecTraceAct,varEventTimes,dblUseMaxDur,intResampNum,intPlot,intLatencyPeaks,boolVerbose)
 	%	input:
 	%	- vecTraceT [N x 1]: time (s) corresponding to entries in vecTraceAct
 	%	- vecTraceAct [N x 1]: activation trace (e.g., calcium imaging dF/F0)
-	%	- vecEventStarts [T x 1]: event on times (s), or [T x 2] including event off times
-	%	- intPlot: integer, plotting switch (0=none, 1=traces, 2=activity heat map) (default: 0)
-	%	- dblUseMaxDur: float (s), ignore all spikes beyond this duration after stimulus onset
+	%	- vecEventTimes [T x 1]: event on times (s), or [T x 2] including event off times
+	%	- dblUseMaxDur: float (s), ignore all values beyond this duration after stimulus onset
 	%								[default: median of trial start to trial start]
-	%	- intResampNum: integer, number of resamplings (default: 25)
+	%	- intResampNum: integer, number of resamplings (default: 50)
+	%	- intPlot: integer, plotting switch (0=none, 1=traces, 2=raster plot) (default: 0)
+	%	- intLatencyPeaks: integer, maximum number of latency peaks to return (default: 2)
 	%	- boolVerbose: boolean, switch to print messages
 	%
 	%	output:
-	%	- dblZeta; FDR-corrected responsiveness z-score (i.e., >2 is significant)
-	%	- sOptionalOutputs; structure with fields:
-	%		- dblZ; uncorrected peak z-score
+	%	- dblZETA; Zenith of Event-based Time-locked Anomalies: FDR-corrected responsiveness z-score (i.e., >2 is significant)
+	%	- vecLatencies; empty if not significant; otherwise 3-element vector:
+	%		1) ZETA-latency
+	%		2) Latency of largest ZETA with inverse sign
+	%		3) Peak time of multi-scale derivatives
+	%		4) Onset of largest sustained peak
+	%	- sZETA; structure with fields:
+	%		- dblZ; uncorrected peak z-score 
 	%		- dblP; p-value corresponding to zeta
+	%		- dblPeakT; time corresponding to ZETA
 	%		- dblHzD; Cohen's D based on mean-rate stim/base difference
 	%		- dblHzP; p-value based on mean-rate stim/base difference
-	%		- vecSpikeT: timestamps of interpolated z-scores
-	%		- vecZ; z-score for all time points corresponding to vecInterpT
-	%		- vecPeaksZ; z-scores of peaks in vecZ
-	%		- vecPeaksIdxT; index vector for peaks in vecZ
-	%		- vecPeaksTime; time in trial for peaks in vecZ
-	%		- vecPeaksWidths; width in spikes for peaks in vecZ
-	%		- vecPeaksProminences; height in z-score of peaks in vecZ
+	%		- vecSpikeT: timestamps of spike times (corresponding to vecZ)
+	%		- vecZ; z-score for all time points corresponding to vecSpikeT
 	%		- vecRealDiff: real offset of spikes relative to uniform rate
 	%		- matRandDiff; matrix of shuffled runs with offset to uniform
+	%	- sMSD; structure with fields: (only if dblP < 0.05 or dblHzP < 0.05)
+	%		- vecMSD; Multi-scale derivative
+	%		- vecScale; timescales used to calculate derivatives
+	%		- matSmoothMSD; smoothed multi-scale derivatives matrix
+	%		- matMSD; raw multi-scale derivatives matrix
+	%		Additionally, it will return peak latencies using findsustainedpeaks.m:
+	%		- vecTime: latencies for activation
+	%		- vecIdx:  indices corresponding to peak locations in vecSpikeT/vecZ entries
+	%		- vecDuration: peak durations
+	%		- vecEnergy: peak energies
 	%
 	%Version history:
 	%0.9 - June 27 2019
 	%	Created by Jorrit Montijn
 	%1.0 - September 24 2019
 	%	New procedure to determine statistical significance [by JM]
+	%2.0 - January 27 2020
+	%	New peak detection procedure using multi-scale derivatives [by JM]
 	
 	%% prep data
 	%ensure orientation
 	vecTraceT = vecTraceT(:);
 	vecTraceAct = vecTraceAct(:);
-	if size(vecEventStarts,2) > 2
-		vecEventStarts = vecEventStarts';
-	end
 	
 	%calculate stim/base difference?
-	boolActDiff = false;
+	boolStopSupplied = false;
 	dblHzD = nan;
-	if size(vecEventStarts,2) == 2
-		boolActDiff = true;
+	if size(varEventTimes,2) > 2
+		varEventTimes = varEventTimes';
+	end
+	if size(varEventTimes,2) == 2
+		boolStopSupplied = true;
+	end
+	
+	%trial dur
+	if ~exist('dblUseMaxDur','var') || isempty(dblUseMaxDur)
+		dblUseMaxDur = median(diff(varEventTimes(:,1)));
+	end
+	
+	%get resampling num
+	if ~exist('intResampNum','var') || isempty(intResampNum)
+		intResampNum = 50;
 	end
 	
 	%get boolPlot
@@ -54,23 +78,22 @@ function [dblZeta,sOptionalOutputs] = getTraceZeta(vecTraceT,vecTraceAct,vecEven
 		intPlot = 0;
 	end
 	
+	%get boolPlot
+	if ~exist('intLatencyPeaks','var') || isempty(intLatencyPeaks)
+		intLatencyPeaks = 2;
+	end
+	
 	%get boolVerbose
 	if ~exist('boolVerbose','var') || isempty(boolVerbose)
-		boolVerbose = true;
+		boolVerbose = false;
 	end
 	
-	%trial dur
-	if ~exist('dblUseMaxDur','var') || isempty(dblUseMaxDur)
-		dblUseMaxDur = median(diff(vecEventStarts(:,1)));
-	end
-	
-	%get resampling num
-	if ~exist('intResampNum','var') || isempty(intResampNum)
-		intResampNum = 100;
-	end
-	
-	%get spike times in trials
+	%sampling frequency
 	dblSamplingFreq = median(diff(vecTraceT));
+	
+	%% build onset/offset vectors
+	vecEventStarts = varEventTimes(:,1);
+	vecEventStops = varEventTimes(:,2);
 	
 	%% get trial responses
 	intMaxRep = size(vecEventStarts,1);
@@ -92,9 +115,11 @@ function [dblZeta,sOptionalOutputs] = getTraceZeta(vecTraceT,vecTraceAct,vecEven
 	matRandDiff = nan(numel(vecMeanTrace),intResampNum);
 	for intResampling=1:intResampNum
 		%% msg
-		if boolVerbose
+		if boolVerbose && toc(hTic) > 5
 			fprintf('Now at resampling %d/%d\n',intResampling,intResampNum);
+			hTic = tic;
 		end
+		
 		%% get random subsample
 		vecStimUseOnTime = vecEventStarts(:,1) + 2*median(diff(vecEventStarts(:,1)))*rand(size(vecEventStarts(:,1)));
 		
@@ -113,60 +138,43 @@ function [dblZeta,sOptionalOutputs] = getTraceZeta(vecTraceT,vecTraceAct,vecEven
 		vecRandDiff = vecRandDiff - mean(vecRandDiff);
 		
 		%assign data
-		matRandDiff(:,intResampling) = vecRandDiff ;
+		matRandDiff(:,intResampling) = vecRandDiff;
 	end
+	
 	
 	%% calculate measure of effect size (for equal n, d' equals Cohen's d)
 	%define plots
 	vecRandMean = nanmean(matRandDiff,2);
 	vecRandSd = nanstd(matRandDiff,[],2);
 	vecZ = ((vecRealDiff-mean(vecRandMean))./mean(vecRandSd));
-	
-	%get max & min values
-	[vecPosVals,vecPosPeakLocs,vecPosPeakWidth,vecPosPeakHeight]= findpeaks(vecZ,'MinPeakDistance',numel(vecZ)/10);
-	[vecNegVals,vecNegPeakLocs,vecNegPeakWidth,vecNegPeakHeight]= findpeaks(-vecZ,'MinPeakDistance',numel(vecZ)/10);
-	vecAllVals = cat(1,vecPosVals,-vecNegVals);
-	vecAllPeakLocs = cat(1,vecPosPeakLocs,vecNegPeakLocs);
-	vecAllPeakWidths = cat(1,vecPosPeakWidth,vecNegPeakWidth);
-	vecAllPeakProminences = cat(1,vecPosPeakHeight,vecNegPeakHeight);
-	
-	%remove minor peaks
-	indRem = (vecAllPeakProminences./sum(vecAllPeakProminences) < 1/20);
-	vecAllVals(indRem) = [];
-	vecAllPeakLocs(indRem) = [];
-	vecAllPeakWidths(indRem) = [];
-	vecAllPeakProminences(indRem) = [];
-	%reorder
-	[vecAllPeakLocs,vecReorder] = sort(vecAllPeakLocs,'ascend');
-	vecAllVals = vecAllVals(vecReorder);
-	vecAllPeakWidths = vecAllPeakWidths(vecReorder);
-	vecAllPeakProminences = vecAllPeakProminences(vecReorder);
-	vecAllPeakTimes = vecTraceT(vecAllPeakLocs);
+	if numel(vecZ) < 3
+		dblZETA = 0;
+		sZETA = struct;
+		warning([mfilename ':InsufficientSamples'],'Insufficient samples to calculate zeta');
+		return
+	end
 	
 	%find highest peak and retrieve value
-	if isempty(vecAllVals)
-		[dummy,intLoc]= max(abs(cat(1,vecPosVals,vecNegVals)));
-		veTempPeakLocs = cat(1,vecPosPeakLocs,vecNegPeakLocs);
-		intInterpLoc = veTempPeakLocs(intLoc);
-	else
-		[dummy,intLoc]= max(abs(vecAllVals));
-		intInterpLoc = vecAllPeakLocs(intLoc);
-	end
-	dblMaxZTime = vecTraceT(intInterpLoc);
-	dblZ = vecZ(intInterpLoc);
+	[dummy,intPeakLoc]= max(abs(vecZ));
+	dblMaxZTime = vecTraceT(intPeakLoc);
+	dblZ = vecZ(intPeakLoc);
 	dblCorrectionFactor = 2/3.5;
-	dblZeta = dblZ*dblCorrectionFactor;
-	dblP=1-(normcdf(abs(dblZeta))-normcdf(-abs(dblZeta)));
+	dblZETA = dblZ*dblCorrectionFactor;
+	dblP=1-(normcdf(abs(dblZETA))-normcdf(-abs(dblZETA)));
+	%find peak of inverse sign
+	[dummy,intPeakLocInvSign] = max(-sign(dblZ)*vecZ);
+	dblMaxZTimeInvSign = vecTraceT(intPeakLocInvSign);
+	dblZ_InvSign = vecZ(intPeakLocInvSign);
 	
 	%build common timeframe
 	vecRefT = (dblSamplingFreq/2):dblSamplingFreq:dblUseMaxDur;
 		
-	if boolActDiff
+	if boolStopSupplied
 		%% calculate mean-rate difference
 		%pre-allocate
 		vecStimAct = zeros(intMaxRep,1);
 		vecBaseAct = zeros(intMaxRep,1);
-		dblMedianBaseDur = median(vecEventStarts(2:end,1) - vecEventStarts(1:(end-1),2));
+		dblMedianBaseDur = median(vecEventStarts(2:end) - vecEventStops(1:(end-1)));
 		intTimeNum = numel(vecTraceT);
 		
 		%go through trials to build spike time vector
@@ -192,8 +200,9 @@ function [dblZeta,sOptionalOutputs] = getTraceZeta(vecTraceT,vecTraceAct,vecEven
 		end
 		
 		%get metrics
-		dblHzD = abs(mean(vecStimAct - vecBaseAct)) / ( (std(vecStimAct) + std(vecBaseAct))/2);
-		[h,dblHzP]=ttest(vecStimAct,vecBaseAct);
+		dblHzD = abs(nanmean(vecStimAct - vecBaseAct)) / ( (nanstd(vecStimAct) + std(vecBaseAct))/2);
+		indUseTrials = ~isnan(vecStimAct) & ~isnan(vecBaseAct);
+		[h,dblHzP]=ttest(vecStimAct(indUseTrials),vecBaseAct(indUseTrials));
 	end
 	
 	%% plot
@@ -228,18 +237,19 @@ function [dblZeta,sOptionalOutputs] = getTraceZeta(vecTraceT,vecTraceAct,vecEven
 		[vecMean,vecSEM,vecWindowBinCenters] = doPEP(vecTraceT,vecTraceAct,vecEventStarts(:,1),sOpt);
 		errorbar(vecWindowBinCenters,vecMean,vecSEM);
 		%ylim([0 max(get(gca,'ylim'))]);
-		title(sprintf('Mean spiking over trials'));
+		title(sprintf('Mean value over trials'));
 		xlabel('Time from event (s)');
-		ylabel('Activation (z-score)');
+		ylabel('Trace value');
 		fixfig
 		
 		subplot(2,3,3)
 		plot(vecRefT,vecRealFrac)
 		hold on
 		plot(vecRefT,vecRealFracLinear,'color',[0.5 0.5 0.5]);
+		hold off
 		title(sprintf('Real data'));
 		xlabel('Time from event (s)');
-		ylabel('Fractional position of spike in trial');
+		ylabel('Fractional position of value in trial');
 		fixfig
 		
 		subplot(2,3,4)
@@ -249,40 +259,90 @@ function [dblZeta,sOptionalOutputs] = getTraceZeta(vecTraceT,vecTraceAct,vecEven
 			plot(vecRefT,matRandDiff(:,intOffset),'Color',[0.5 0.5 0.5]);
 		end
 		plot(vecRefT,vecRealDiff,'Color',lines(1));
+		scatter(dblMaxZTime,vecRealDiff(intPeakLoc),'bx');
+		scatter(dblMaxZTimeInvSign,vecRealDiff(intPeakLocInvSign),'b*');
 		hold off
 		xlabel('Time from event (s)');
 		ylabel('Offset of data from linear (s)');
-		title(sprintf('1-%d, diff data/baseline',intPlotIters));
+		if boolStopSupplied
+			title(sprintf('ZETA=%.3f (p=%.3f), d(Hz)=%.3f (p=%.3f)',dblZETA,dblP,dblHzD,dblHzP));
+		else
+			title(sprintf('ZETA=%.3f (p=%.3f)',dblZETA,dblP));
+		end
 		fixfig
 		
-		subplot(2,3,5)
-		plot(vecRefT,vecZ);
-		hold on
-		scatter(vecAllPeakTimes,vecAllVals,'kx');
-		scatter(dblMaxZTime,dblZ,'rx');
-		hold off
-		xlabel('Time from event (s)');
-		ylabel('Z-score');
-		title(sprintf('Zeta=%.3f (p=%.3f), d(Hz)=%.3f (p=%.3f)',dblZeta,dblP,dblHzD,dblHzP));
-		fixfig
+		
 	end
 	
+	%% calculate MSD if significant
+	if dblP < 0.05 || dblHzP < 0.05
+		[vecMSD,sMSD] = getMultiScaleDeriv(vecRefT,vecRealDiff,[],[],[],intPlot);
+	else
+		sMSD = [];
+	end
+	%% calculate MSD statistics
+	if ~isempty(sMSD) && intLatencyPeaks > 0
+		%get sustained peak onset
+		[vecPeakTime,vecPeakIdx,vecPeakDuration,vecPeakEnergy,vecSlope] = findsustainedpeaks(vecMSD,vecRefT,intLatencyPeaks);
+		%get MSD most prominent peak time
+		[vecVals,vecLocs,vecsWidth,vecProms]=findpeaks(vecMSD);
+		[dummy,intIdxMSD] = max(vecVals);
+		intPeakLocMSD = vecLocs(intIdxMSD);
+		dblPeakTimeMSD = vecTraceT(intPeakLocMSD);
+		
+		sMSD.intPeakLocMSD = intPeakLocMSD;
+		sMSD.dblPeakTimeMSD = dblPeakTimeMSD;
+		sMSD.vecTime = vecPeakTime;
+		sMSD.vecIdx = vecPeakIdx;
+		sMSD.vecDuration = vecPeakDuration;
+		sMSD.vecEnergy = vecPeakEnergy;
+		vecLatencies = [dblMaxZTime dblMaxZTimeInvSign dblPeakTimeMSD vecPeakTime(1)];
+		if intPlot > 0
+			hold on
+			scatter(vecPeakTime(1),vecMSD(vecPeakIdx(1)),'rx');
+			scatter(dblPeakTimeMSD,vecMSD(intPeakLocMSD),'gx');
+			scatter(dblMaxZTime,vecMSD(intPeakLoc),'bx');
+			scatter(dblMaxZTimeInvSign,vecMSD(intPeakLocInvSign),'b*');
+			hold off
+			title(sprintf('ZETA=%.0fms,-ZETA=%.0fms,Pk=%.0fms,Sh=%.0fms',dblMaxZTime*1000,dblMaxZTimeInvSign*1000,dblPeakTimeMSD*1000,vecPeakTime(1)*1000));
+			fixfig;
+		
+
+			vecHandles = get(gcf,'children');
+			ptrFirstSubplot = vecHandles(find(contains(get(vecHandles,'type'),'axes'),1,'last'));
+			axes(ptrFirstSubplot);
+			vecY = get(gca,'ylim');
+			hold on;
+			plot(vecPeakTime(1)*[1 1],vecY,'r--');
+			plot(dblPeakTimeMSD*[1 1],vecY,'g--');
+			plot(dblMaxZTime*[1 1],vecY,'b--');
+			plot(dblMaxZTimeInvSign*[1 1],vecY,'b-.');
+			
+			hold off
+		end
+	else
+		vecLatencies = [];
+	end
+		
 	%% build optional output structure
 	if nargin > 1
-		sOptionalOutputs = struct;
-		sOptionalOutputs.dblZ = dblZ;
-		sOptionalOutputs.dblP = dblP;
-		sOptionalOutputs.dblHzD = dblHzD;
-		sOptionalOutputs.dblHzP = dblHzP;
-		sOptionalOutputs.vecRefT = vecRefT;
-		sOptionalOutputs.vecZ = vecZ;
-		sOptionalOutputs.vecPeaksZ = vecAllVals;
-		sOptionalOutputs.vecPeaksIdxT = vecAllPeakLocs;
-		sOptionalOutputs.vecPeaksTime = vecAllPeakTimes;
-		sOptionalOutputs.vecPeaksWidths = vecAllPeakWidths;
-		sOptionalOutputs.vecPeaksProminences = vecAllPeakProminences;
-		sOptionalOutputs.vecRealDiff = vecRealDiff;
-		sOptionalOutputs.matRandDiff = matRandDiff;
+		sZETA = struct;
+		sZETA.dblZ = dblZ;
+		sZETA.dblP = dblP;
+		sZETA.dblPeakT = dblMaxZTime;
+		sZETA.intPeakIdx = intPeakLoc;
+		if boolStopSupplied
+			sZETA.dblHzD = dblHzD;
+			sZETA.dblHzP = dblHzP;
+		end
+		sZETA.vecTraceT = vecTraceT;
+		sZETA.vecZ = vecZ;
+		sZETA.vecRealDiff = vecRealDiff;
+		sZETA.matRandDiff = matRandDiff;
+		
+		sZETA.dblZ_InvSign = dblZ_InvSign;
+		sZETA.intPeakIdx_InvSign = intPeakLocInvSign;
+		sZETA.dblPeakT_InvSign = dblMaxZTimeInvSign;
 	end
 end
 
