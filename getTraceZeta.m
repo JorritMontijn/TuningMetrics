@@ -8,28 +8,28 @@ function [dblZETA,vecLatencies,sZETA,sMSD] = getTraceZeta(vecTraceT,vecTraceAct,
 	%	- dblUseMaxDur: float (s), ignore all values beyond this duration after stimulus onset
 	%								[default: median of trial start to trial start]
 	%	- intResampNum: integer, number of resamplings (default: 50)
-	%	- intPlot: integer, plotting switch (0=none, 1=traces, 2=raster plot) (default: 0)
-	%	- intLatencyPeaks: integer, maximum number of latency peaks to return (default: 2)
+	%	- intPlot: integer, plotting switch (0=none, 1=traces only, 2=activity heat map as well) (default: 0)
+	%	- intLatencyPeaks: integer, maximum number of latency peaks to return (default: 4)
 	%	- boolVerbose: boolean, switch to print messages
 	%
 	%	output:
 	%	- dblZETA; Zenith of Event-based Time-locked Anomalies: FDR-corrected responsiveness z-score (i.e., >2 is significant)
-	%	- vecLatencies; empty if not significant; otherwise 3-element vector:
-	%		1) ZETA-latency
-	%		2) Latency of largest ZETA with inverse sign
+	%	- vecLatencies; different latency estimates, number if determined by intLatencyPeaks:
+	%		1) Latency of ZETA
+	%		2) Latency of largest z-score with inverse sign to ZETA
 	%		3) Peak time of multi-scale derivatives
-	%		4) Onset of largest sustained peak
+	%		4...N) Onsets of largest sustained peaks
 	%	- sZETA; structure with fields:
 	%		- dblZ; uncorrected peak z-score 
 	%		- dblP; p-value corresponding to zeta
 	%		- dblPeakT; time corresponding to ZETA
 	%		- dblHzD; Cohen's D based on mean-rate stim/base difference
 	%		- dblHzP; p-value based on mean-rate stim/base difference
-	%		- vecSpikeT: timestamps of spike times (corresponding to vecZ)
-	%		- vecZ; z-score for all time points corresponding to vecSpikeT
+	%		- vecTraceT: timestamps of trace entries (corresponding to vecZ)
+	%		- vecZ; z-score for all time points corresponding to vecTraceT
 	%		- vecRealDiff: real offset of spikes relative to uniform rate
 	%		- matRandDiff; matrix of shuffled runs with offset to uniform
-	%	- sMSD; structure with fields: (only if dblP < 0.05 or dblHzP < 0.05)
+	%	- sMSD; structure with fields: (only if intLatencyPeaks > 0)
 	%		- vecMSD; Multi-scale derivative
 	%		- vecScale; timescales used to calculate derivatives
 	%		- matSmoothMSD; smoothed multi-scale derivatives matrix
@@ -274,12 +274,13 @@ function [dblZETA,vecLatencies,sZETA,sMSD] = getTraceZeta(vecTraceT,vecTraceAct,
 		
 	end
 	
-	%% calculate MSD if significant
-	if dblP < 0.05 || dblHzP < 0.05
+	%% calculate MSD
+	if intLatencyPeaks > 0
 		[vecMSD,sMSD] = getMultiScaleDeriv(vecRefT,vecRealDiff,[],[],[],intPlot);
 	else
 		sMSD = [];
 	end
+	
 	%% calculate MSD statistics
 	if ~isempty(sMSD) && intLatencyPeaks > 0
 		%get sustained peak onset
@@ -296,7 +297,8 @@ function [dblZETA,vecLatencies,sZETA,sMSD] = getTraceZeta(vecTraceT,vecTraceAct,
 		sMSD.vecIdx = vecPeakIdx;
 		sMSD.vecDuration = vecPeakDuration;
 		sMSD.vecEnergy = vecPeakEnergy;
-		vecLatencies = [dblMaxZTime dblMaxZTimeInvSign dblPeakTimeMSD vecPeakTime(1)];
+		vecLatencies = [dblMaxZTime dblMaxZTimeInvSign dblPeakTimeMSD vecPeakTime(:)'];
+		vecLatencies = vecLatencies(1:intLatencyPeaks);
 		if intPlot > 0
 			hold on
 			scatter(vecPeakTime(1),vecMSD(vecPeakIdx(1)),'rx');
