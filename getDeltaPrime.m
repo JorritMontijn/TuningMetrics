@@ -15,6 +15,9 @@ function dblDeltaPrime = getDeltaPrime(vecResp,vecAngles,boolBiasCorrection)
 	%2019-08-20 Updated version [by JM]
 	
 	%% check inputs
+	status = warning('on');
+	%if range(vecAngles) > 2*pi,warning([mfilename 'W:Degs'],'Angles are >2pi, are you sure they are radians?');end
+	warning(status);
 	if size(vecResp,2) == 1,vecResp = vecResp';end
 	if size(vecAngles,2) == 1,vecAngles = vecAngles';end
 	if size(vecResp,2) ~= size(vecAngles,2)

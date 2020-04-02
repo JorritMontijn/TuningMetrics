@@ -265,11 +265,19 @@ function [dblZETA,vecLatencies,sZETA,sMSD] = getZeta(vecSpikeTimes,varEventTimes
 		%get sustained peak onset
 		[vecPeakTime,vecPeakIdx,vecPeakDuration,vecPeakEnergy,vecSlope] = findsustainedpeaks(vecMSD,vecSpikeT,intLatencyPeaks);
 		%get MSD most prominent peak time
-		[vecVals,vecLocs,vecsWidth,vecProms]=findpeaks(vecMSD);
-		[dummy,intIdxMSD] = max(vecVals);
-		intPeakLocMSD = vecLocs(intIdxMSD);
-		dblPeakTimeMSD = vecSpikeT(intPeakLocMSD);
+		[vecValsPos,vecLocsPos,vecsWidthPos,vecPromsPos]=findpeaks(vecMSD);
+		[dblMaxPosVal,intPosIdxMSD] = max(vecVals);
+		[vecValsNeg,vecLocsNeg,vecsWidthNeg,vecPromsNeg]=findpeaks(-vecMSD);
+		[dblMaxNegVal,intNegIdxMSD] = max(vecValsNeg);
+		if abs(dblMaxPosVal) > abs(dblMaxNegVal)
+			intIdxMSD = intPosIdxMSD;
+			intPeakLocMSD = vecLocsPos(intIdxMSD);
+		else
+			intIdxMSD = intNegIdxMSD;
+			intPeakLocMSD = vecLocsNeg(intIdxMSD);
+		end
 		
+		dblPeakTimeMSD = vecSpikeT(intPeakLocMSD);
 		sMSD.intPeakLocMSD = intPeakLocMSD;
 		sMSD.dblPeakTimeMSD = dblPeakTimeMSD;
 		sMSD.vecTime = vecPeakTime;
